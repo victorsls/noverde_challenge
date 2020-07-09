@@ -26,6 +26,24 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=noverde_challenge
+  redis:
+    image: "redis:alpine"
+  celery:
+    build: .
+    command: bash -c "celery -A challenge worker -l info"
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=tf$utx+@t(tj&c04i7wva%70ol-uozr3!8$ap=1v_(5vlksxsi
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/noverde_challenge
+      - NOVERDE_API_KEY=SnAB7jQEFs1Ai8XtZdssa14gORT3jWPI7TWdXN97
+      - NOVERDE_API_URL=https://challenge.noverde.name
+      - CELERY_BROKER_URL=redis://redis:6379
+      - CELERY_RESULT_BACKEND=redis://redis:6379
+    volumes:
+      - ./:/app
+    depends_on:
+      - redis
 
 volumes:
   postgres_data:

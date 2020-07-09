@@ -3,20 +3,28 @@ from decimal import Decimal
 
 import requests
 from django.conf import settings
+from django.core.serializers import serialize
 from rest_framework import status
 
+from challenge.celery import app
+from challenge.loan.models import Loan
 
-def age_policy(loan, lowest_acceptable_age=18):
+
+@app.task(name="age_policy_task")
+def age_policy(loan_id, lowest_acceptable_age=18):
+    loan = Loan.objects.get(id=loan_id)
     loan.status = loan.PROCESSING
-    loan.save()
     if loan.calculate_age() < lowest_acceptable_age:
         loan.status = loan.COMPLETED
         loan.result = loan.REFUSED
         loan.refused_policy = loan.AGE
-        loan.save()
+    loan.save()
+    return serialize('json', [loan])
 
 
-def score_policy(loan, lowest_acceptable_score=600):
+@app.task(name="score_policy_task")
+def score_policy(loan_id, lowest_acceptable_score=600):
+    loan = Loan.objects.get(id=loan_id)
     url = f'{settings.NOVERDE_API_URL}/score'
 
     payload = {'cpf': loan.cpf}
@@ -30,16 +38,18 @@ def score_policy(loan, lowest_acceptable_score=600):
     if response.status_code == status.HTTP_200_OK:
         score = response.json().get('score')
         loan.score = score
-        loan.save()
 
         if score < lowest_acceptable_score:
             loan.status = loan.COMPLETED
             loan.result = loan.REFUSED
             loan.refused_policy = loan.SCORE
-            loan.save()
+    loan.save()
+    return serialize('json', [loan])
 
 
-def commitment_policy(loan):
+@app.task(name="commitment_policy_task")
+def commitment_policy(loan_id):
+    loan = Loan.objects.get(id=loan_id)
     url = f'{settings.NOVERDE_API_URL}/commitment'
 
     payload = {'cpf': loan.cpf}
@@ -59,9 +69,14 @@ def commitment_policy(loan):
                 loan.status = loan.COMPLETED
                 loan.result = loan.APPROVED
                 loan.terms = terms
-                loan.save()
                 break
             terms += 3
+        if loan.status != loan.COMPLETED:
+            loan.status = loan.COMPLETED
+            loan.result = loan.REFUSED
+            loan.refused_policy = loan.COMMITMENT
+        loan.save()
+    return serialize('json', [loan])
 
 
 def get_interest_rate(score, terms):

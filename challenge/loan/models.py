@@ -6,8 +6,6 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from challenge.loan.tasks import age_policy, score_policy, commitment_policy
-
 
 class Loan(models.Model):
     PROCESSING, COMPLETED = 'processing', 'completed'
@@ -48,11 +46,10 @@ class Loan(models.Model):
 
 @receiver(post_save, sender=Loan)
 def check_policies(sender, instance, created, **kwargs):
+    from challenge.loan.tasks import age_policy, score_policy, commitment_policy
     if created:
-        age_policy(instance)
-
-        if instance.status == instance.PROCESSING:
-            score_policy(instance)
-
-        if instance.status == instance.PROCESSING:
-            commitment_policy(instance)
+        age_policy.delay(loan_id=instance.id)
+    elif instance.status == instance.PROCESSING and not instance.score:
+        score_policy.delay(loan_id=instance.id)
+    elif instance.status == instance.PROCESSING and instance.score:
+        commitment_policy.delay(loan_id=instance.id)
